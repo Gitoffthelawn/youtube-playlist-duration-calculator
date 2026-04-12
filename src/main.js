@@ -12,7 +12,7 @@ const main = () => {
     setupPage();
     checkPlaylistReady();
   } catch (error) {
-    logger.error(error.message);
+    logger.error("main_failed", error.message);
   }
 };
 
@@ -32,6 +32,15 @@ const checkPlaylistReady = () => {
     const playlistElement = document.querySelector(elementSelectors.playlist);
     const playlistExists = playlistElement !== null;
 
+    logger.debug("poll_tick", () => ({
+      pollCount,
+      playlistExists,
+      playlistVisible: playlistExists
+        ? isElementVisible(playlistElement)
+        : null,
+      pathname: window.location.pathname,
+    }));
+
     if (
       pollCount > 15 &&
       !(playlistExists && isElementVisible(playlistElement)) &&
@@ -41,15 +50,12 @@ const checkPlaylistReady = () => {
 
       logger.warn("Could not find a playlist.");
 
-      logger.debug(
-        "Could not find a playlist",
-        JSON.stringify({
-          pollCount: pollCount,
-          playlistExists: playlistExists,
-          playlistVisible: isElementVisible(playlistElement),
-          location: window.location,
-        }),
-      );
+      logger.debug("playlist_not_found", () => ({
+        pollCount,
+        playlistExists,
+        playlistVisible: isElementVisible(playlistElement),
+        pathname: window.location.pathname,
+      }));
 
       return;
     }
@@ -68,10 +74,25 @@ const checkPlaylistReady = () => {
 
       const playlistVisible = isElementVisible(playlistElement);
 
+      logger.debug("playlist_ready_check", () => ({
+        pollCount,
+        playlistVisible,
+        timestampExists,
+        unavailableTimestampsCount,
+        unavailableVideosCount,
+        playlistOffsetHeight: playlistElement?.offsetHeight,
+        playlistOffsetWidth: playlistElement?.offsetWidth,
+      }));
+
       if (playlistVisible) {
         processPlaylist();
       } else {
-        logger.debug("Playlist exists but is not visible, skipping processing");
+        logger.debug("playlist_not_visible_skipping", () => ({
+          pollCount,
+          offsetParent: playlistElement?.offsetParent?.tagName,
+          display: getComputedStyle(playlistElement).display,
+          visibility: getComputedStyle(playlistElement).visibility,
+        }));
       }
     }
 
@@ -109,10 +130,10 @@ const setupPage = () => {
   };
 
   const onYoutubeNavigationFinished = () => {
-    logger.debug(
-      "YT Navigation Finished",
-      `${JSON.stringify(window.location)}`,
-    );
+    logger.debug("yt_navigation_finished", () => ({
+      pathname: window.location.pathname,
+      search: window.location.search,
+    }));
 
     document.removeEventListener(
       "yt-navigate-finish",
@@ -261,13 +282,12 @@ const getVideoTitle = (video) => {
 };
 
 const processPlaylist = () => {
-  logger.debug("Processing playlist");
+  logger.debug("processing_playlist");
 
   const playlistObserver = setupPlaylistObserver();
   const videos = getVideos();
   const timestamps = videos.map(getTimestampFromVideo);
-
-  logger.debug("Calculating total duration");
+  const nullTimestamps = timestamps.filter((t) => t === null).length;
 
   const totalDurationInSeconds =
     Array.isArray(timestamps) && timestamps.length > 0
@@ -275,6 +295,14 @@ const processPlaylist = () => {
       : 0;
 
   const playlistDuration = convertSecondsToTimestamp(totalDurationInSeconds);
+
+  logger.debug("playlist_calculated", () => ({
+    videoCount: videos.length,
+    timestampCount: timestamps.length,
+    nullTimestamps,
+    totalDurationInSeconds,
+    playlistDuration,
+  }));
 
   addPlaylistSummaryToPage({ timestamps, playlistDuration, playlistObserver });
 };
@@ -289,11 +317,15 @@ const processPlaylist = () => {
     } | null}
   */
 const setupPlaylistObserver = () => {
-  if (window.ytpdc.playlistObserver) return window.ytpdc.playlistObserver;
+  if (window.ytpdc.playlistObserver) {
+    logger.debug("playlist_observer_reused");
+    return window.ytpdc.playlistObserver;
+  }
 
   const playlistElement = document.querySelector(elementSelectors.playlist);
 
   if (!playlistElement) {
+    logger.debug("playlist_observer_no_element");
     return null;
   }
 
@@ -302,6 +334,10 @@ const setupPlaylistObserver = () => {
   playlistObserver.observe(playlistElement, { childList: true });
 
   window.ytpdc.playlistObserver = playlistObserver;
+
+  logger.debug("playlist_observer_created", () => ({
+    playlistChildCount: playlistElement.childElementCount,
+  }));
 
   return {
     disconnect: () => playlistObserver.disconnect(),
@@ -318,6 +354,15 @@ const setupPlaylistObserver = () => {
  */
 const onPlaylistMutated = (mutationList, observer) => {
   const playlistElement = document.querySelector(elementSelectors.playlist);
+
+  logger.debug("playlist_mutated", () => ({
+    mutationCount: mutationList.length,
+    types: mutationList.map((m) => m.type),
+    addedTotal: mutationList.reduce((n, m) => n + m.addedNodes.length, 0),
+    removedTotal: mutationList.reduce((n, m) => n + m.removedNodes.length, 0),
+    sortDropdownUsed: window.ytpdc.sortDropdown.used,
+    lastVideoInteracted: !!window.ytpdc.lastVideoInteractedWith,
+  }));
 
   if (mutationList.length === 1 && mutationList[0].type === "childList") {
     const mutation = mutationList[0];
@@ -409,8 +454,6 @@ const addPlaylistSummaryToPage = ({
   playlistDuration,
   playlistObserver,
 }) => {
-  logger.debug("Adding playlist summary to page");
-
   const playlistSummaryElement = createPlaylistSummaryElement({
     timestamps,
     playlistDuration,
@@ -420,6 +463,11 @@ const addPlaylistSummaryToPage = ({
   const existingPlaylistSummaryElement = getPlaylistSummaryElement();
 
   if (existingPlaylistSummaryElement) {
+    logger.debug("replacing_existing_summary", () => ({
+      existingId: existingPlaylistSummaryElement.id,
+      existingVisible: isElementVisible(existingPlaylistSummaryElement),
+    }));
+
     existingPlaylistSummaryElement.replaceWith(playlistSummaryElement);
   } else {
     const playlistMetadataElement = getPlaylistMetadataElement();
@@ -437,6 +485,20 @@ const addPlaylistSummaryToPage = ({
       playlistSummaryElement,
       playlistMetadataElement.nextElementSibling,
     );
+
+    logger.debug("inserted_playlist_summary", () => ({
+      summaryId: playlistSummaryElement.id,
+      isNewDesign: isNewDesign(),
+      summaryVisible: isElementVisible(playlistSummaryElement),
+      summaryOffsetHeight: playlistSummaryElement.offsetHeight,
+      summaryOffsetWidth: playlistSummaryElement.offsetWidth,
+      parentOverflow: getComputedStyle(playlistSummaryElement.parentElement)
+        .overflow,
+      parentDisplay: getComputedStyle(playlistSummaryElement.parentElement)
+        .display,
+      parentHeight: getComputedStyle(playlistSummaryElement.parentElement)
+        .height,
+    }));
   }
 };
 
@@ -446,6 +508,16 @@ const createPlaylistSummaryElement = ({
   playlistObserver,
 }) => {
   const newDesign = isNewDesign();
+
+  logger.debug("creating_summary_element", () => ({
+    newDesign,
+    newAnchorFound: !!document.querySelector(elementSelectors.designAnchor.new),
+    oldAnchorFound: !!document.querySelector(elementSelectors.designAnchor.old),
+    oldAnchorHidden: document
+      .querySelector(elementSelectors.designAnchor.old)
+      ?.getAttribute("hidden"),
+    totalVideosInPlaylist: countTotalVideosInPlaylist(),
+  }));
 
   const containerElement = document.createElement("div");
   containerElement.id = elementSelectors.playlistSummary[
@@ -536,17 +608,62 @@ const getPlaylistMetadataElement = () => {
     if (meta.queryMethod === "querySelectorAllAndFilter") {
       const potentialElements = document.querySelectorAll(meta.selector);
 
+      logger.debug("metadata_selector_querySelectorAll", () => ({
+        selector: meta.selector,
+        matchCount: potentialElements.length,
+      }));
+
       if (potentialElements.length > 0) {
         element = [...potentialElements].find(isElementVisible);
+
+        logger.debug("metadata_selector_visibility_filter", () => ({
+          selector: meta.selector,
+          visibleElementFound: !!element,
+        }));
+
+        if (element) {
+          logger.debug("metadata_selector_matched", () => ({
+            selector: meta.selector,
+            elementTag: element.tagName,
+            elementClasses: element.className,
+            parentTag: element.parentElement?.tagName,
+            parentClasses: element.parentElement?.className,
+            parentId: element.parentElement?.id,
+            parentOverflow: element.parentElement
+              ? getComputedStyle(element.parentElement).overflow
+              : null,
+          }));
+
+          return element;
+        }
       }
     } else {
       element = document.querySelector(meta.selector);
-    }
 
-    if (element) {
-      return element;
+      logger.debug("metadata_selector_querySelector", () => ({
+        selector: meta.selector,
+        found: !!element,
+      }));
+
+      if (element && isElementVisible(element)) {
+        logger.debug("metadata_selector_matched", () => ({
+          selector: meta.selector,
+          elementTag: element.tagName,
+          elementClasses: element.className,
+          parentTag: element.parentElement?.tagName,
+          parentClasses: element.parentElement?.className,
+          parentId: element.parentElement?.id,
+          parentOverflow: element.parentElement
+            ? getComputedStyle(element.parentElement).overflow
+            : null,
+        }));
+
+        return element;
+      }
     }
   }
+
+  logger.debug("metadata_selector_no_match");
 
   return null;
 };
@@ -664,12 +781,13 @@ const createSortDropdown = (playlistObserver) => {
 };
 
 // Entry-point
-if (document.readyState !== "loading") {
+const start = () => {
   logger.info("Loaded.");
   main();
+};
+
+if (document.readyState !== "loading") {
+  start();
 } else {
-  document.addEventListener("DOMContentLoaded", () => {
-    logger.info("Loaded.");
-    main();
-  });
+  document.addEventListener("DOMContentLoaded", start);
 }
