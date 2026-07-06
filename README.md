@@ -26,13 +26,18 @@ The extension is available for download at:
 ## Features
 
 - Calculate & display the total duration of a YouTube playlist
+- **Multi-variant support:** Works across different YouTube rendering
+  architectures. These include traditional renderer elements and newer view-model layout.
+- **Failure signaling:** If YouTube's layout changes in an unsupported way,
+  the extension displays feedback and offers users the ability to report the
+  issue
 - Sort playlists with 100 videos or less, by the following criteria:
   - Duration
   - Channel Name
   - Index
   - Views (only for some locales)
-  - Upload Date (only for public playlists & some locales)
-- Translations for several locales (en, es, fr, pt, zh)
+  - Upload Date, only for public playlists and some locales
+- Translations for several locales: en, es, fr, pt, zh, pt_BR, pt_PT, zh_CN, zh_TW
 
 > [!NOTE]  
 > The sorting feature is only enabled for playlists containing 100
@@ -40,6 +45,43 @@ The extension is available for download at:
 > only loads the next 100 videos after you scroll to the bottom of the page.
 > This can often produce inconsistent & inaccurate sorting results, so it has
 > been disabled for now.
+
+### What happens when the extension cannot locate the playlist
+
+If YouTube changes its DOM structure in a way that none of the extension's
+strategies can recognize, the extension displays a **red-bordered diagnostic
+indicator** inside the playlist summary panel. This indicator includes:
+
+- A clear message: "Unable to calculate playlist duration. This may be due to
+  a YouTube layout change."
+- A **"Report this issue"** link that opens a pre-filled Google Form with the
+  extension version, browser, and locale. The form is anonymous and requires
+  no account, so any user can signal that the extension is broken. (The full
+  diagnostic snapshot remains in the browser console via `?ytpdc-debug=true`.)
+
+To help diagnose issues before they appear as failures, open the playlist page
+with `?ytpdc-debug=true` appended to the URL. The extension will log detailed
+strategy information to the browser console.
+
+### Architecture
+
+The extension uses a layered strategy system to survive YouTube DOM changes:
+
+1. **Desynchronization Detection**: Identifies which rendering architecture
+   YouTube is using ("renderer", "viewmodel", or "unknown")
+2. **Discovery Strategies**: Find the playlist container using either known
+   CSS selectors or structural invariants (looking for video-card-like elements
+   by their structure, not their tag names)
+3. **Extraction Strategies**: Extract timestamps using either known element
+   selectors or content pattern matching (scanning text for MM:SS / HH:MM:SS
+   patterns)
+4. **Confidence Aggregation**: Tracks which extraction strategy succeeded for
+   each video and reports an estimated error margin when pattern matching was
+   used
+
+Strategies are prioritized by the detected variant: the strategy most likely
+ to succeed runs first. If it finds everything needed, no further strategies
+ are executed.
 
 ## Getting Started
 
@@ -159,6 +201,9 @@ panel located on the left-hand side of the page.
 If you wish to request a new feature or report a bug, please open an issue by
 clicking
 [here](https://github.com/nrednav/youtube-playlist-duration-calculator/issues/new).
+Note that the "Report this issue" link in the extension's failure banner
+points to a no-account Google Form instead, for users who do not have a GitHub
+account.
 
 ## Translations
 
@@ -167,3 +212,10 @@ For a list of locales currently supported by the extension, please see
 
 Additional translations are most welcome! Please see
 [docs/translations.md](./docs/translations.md) for more details.
+
+## Support
+
+If you found this extension helpful and would like to help support its
+development:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/vandern)
