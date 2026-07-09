@@ -1,4 +1,5 @@
 import { elementSelectors } from "src/shared/data/element-selectors";
+import { isDurationText } from "../../shared/modules/duration-pattern";
 import { extractChannelName } from "../extraction/channel-name-extraction";
 import { extractTimestamp } from "../extraction/orchestrator";
 import { extractUploadDate } from "../extraction/upload-date-extraction";
@@ -93,14 +94,21 @@ export class PlaylistSorter {
    */
   static getSortOptions() {
     const sortTypes = PlaylistSorter.getSortTypes();
+
     return Object.keys(sortTypes).flatMap((sortType) => {
       const { enabled, label } = sortTypes[sortType];
-      if (!enabled) return [];
+
+      if (!enabled) {
+        return [];
+      }
+
       return Object.keys(label).map((sortOrder) => {
         const optionElement = document.createElement("div");
+
         optionElement.classList.add("ytpdc-sort-control-dropdown-option");
         optionElement.setAttribute("value", `${sortType}:${sortOrder}`);
         optionElement.textContent = label[sortOrder];
+
         return optionElement;
       });
     });
@@ -128,7 +136,10 @@ export class PlaylistSorter {
  */
 const videoExposesDatum = (datum) => {
   const videoElement = resolveFirstVideo();
-  if (!videoElement) return false;
+
+  if (!videoElement) {
+    return false;
+  }
 
   switch (datum) {
     case "index":
@@ -158,18 +169,49 @@ const videoExposesDatum = (datum) => {
 };
 
 /**
- * Resolve the first video element in the playlist, agnostic to the
- * rendering architecture. The renderer architecture renders
- * ytd-playlist-video-renderer. The viewmodel architecture renders
- * yt-lockup-view-model. Both are queried in priority order.
+ * Resolve the first playable video element in the playlist, agnostic to
+ * the rendering architecture.
  *
+ * Renderer architecture: returns the ytd-playlist-video-renderer if present.
+ * ViewModel architecture: returns the first yt-lockup-view-model whose
+ * badge-shape text is a duration (stale SPA cards without a duration badge
+ * are skipped).
+ *
+ * Returns null when no playable video is found, so callers (videoExposes
+ * Datum) report "no data available" rather than probing a stale/playlist card.
+ *
+ * @param {Document} [doc=document]
  * @returns {Element|null}
  */
-const resolveFirstVideo = () => {
-  return (
-    document.querySelector(elementSelectors.video) ||
-    document.querySelector("yt-lockup-view-model")
-  );
+export const resolveFirstVideo = (doc = document) => {
+  // Renderer architecture: known selector
+  const rendererVideo = doc.querySelector(elementSelectors.video);
+
+  if (rendererVideo) {
+    return rendererVideo;
+  }
+
+  // ViewModel architecture: find a lockup with a duration badge-shape.
+  // The first lockup in DOM order may be a stale card from SPA nav.
+  const allLockups = doc.querySelectorAll("yt-lockup-view-model");
+
+  for (const lockup of allLockups) {
+    const badges = lockup.querySelectorAll("badge-shape");
+
+    const hasDurationBadge = [...badges].some((badge) =>
+      isDurationText((badge.textContent || "").trim()),
+    );
+
+    if (hasDurationBadge) {
+      return lockup;
+    }
+  }
+
+  // No lockup has a duration badge: this is not a sortable video set.
+  // Return null so videoExposesDatum reports no available data (sort
+  // dropdown shows the "No options available" placeholder) rather than
+  // probing a stale/playlist card.
+  return null;
 };
 
 const pageHasNativeSortFeature = () => {

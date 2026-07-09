@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.3.1] - 2026-07-07
+
+### Fixed
+
+- Fixed `discoverByViewModel` using stale playlist recommendation cards
+  from a previous SPA page as the insertion container and readiness
+  sample. Lockups whose `badge-shape` text is a video count ("20 videos")
+  are now excluded. Only lockups whose `badge-shape` text matches a
+  duration pattern ("1:28:08") are used for container derivation and
+  readiness checks.
+- Fixed duration validation to reject invalid clock values where
+  seconds are 60 or greater (e.g. "9:99"). Previously, each module
+  (discovery, extraction, sorting) duplicated a loose regex that
+  matched any digit-colon-digit sequence regardless of clock validity.
+  A shared `duration-pattern` module now provides `isDurationText` and
+  `extractDuration` with seconds-bounds checking, so bad inputs like
+  "9:99" are rejected everywhere.
+- Fixed the structural-invariant discovery strategy passing a hardcoded
+  `"unknown"` variant to the search function. When renderer-like elements
+  from adjacent page sections were present during an SPA transition, the
+  renderer-invariant branch could short-circuit before the viewmodel
+  branch ran. The strategy now passes the actual variant detected from
+  the live DOM.
+- Fixed `resolveDurationBadge` returning the first `badge-shape` in DOM
+  order regardless of its text content. It now scans all `badge-shape`
+  elements for one whose text matches a duration pattern, then attempts
+  a bounded descendant-element scan (length < 10 characters, excluding
+  false positives from metadata strings), then falls back to the legacy
+  renderer selector.
+- Fixed sort-type detection after SPA navigation. `resolveFirstVideo`
+  no longer returns the first `yt-lockup-view-model` in DOM order (which
+  may be a stale card), but scans for a lockup whose `badge-shape`
+  contains a real duration pattern. Only index sorting was shown when
+  a stale card was selected.
+- Fixed `resolveFirstVideo` returning the first lockup as a fallback
+  when no lockup has a duration badge. It now returns null in that case,
+  causing the sort dropdown to show "No options available" rather than
+  probing a stale or non-playable card.
+- Fixed upload date locale parsers (en, es, fr, pt, zh-Hans-CN,
+  zh-Hant-TW) throwing `TypeError: Cannot read properties of null` on
+  metadata fragments that pass the date-fragment gate (contain a digit)
+  but do not match the locale's date regex. Each parser now guards the
+  `.match()` return value and returns `null` on mismatch.
+- Fixed SPA transition race where a poll tick detects a pathname change
+  to /playlist before YouTube's DOM finishes rendering, causing
+  discovery to run on a transition-state page, derive the wrong
+  insertion container, and process only 1 video. The polling loop now
+  skips the tick and resets the poll counter when the pathname differs
+  from the previous tick, giving YouTube's renderer one full interval
+  to stabilise before running discovery.
+
 ## [v2.3.0] - 2026-07-03
 
 ### Added
@@ -231,6 +282,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   - Bug where timestamps were not being summed properly
 - Addressed vulnerabilities reported by pnpm audit and dependabot
 
+[v2.3.1]: https://github.com/nrednav/youtube-playlist-duration-calculator/compare/v2.3.0...v2.3.1
 [v2.3.0]: https://github.com/nrednav/youtube-playlist-duration-calculator/compare/v2.2.3...v2.3.0
 [v2.2.3]: https://github.com/nrednav/youtube-playlist-duration-calculator/compare/v2.2.2...v2.2.3
 [v2.2.2]: https://github.com/nrednav/youtube-playlist-duration-calculator/compare/v2.2.1...v2.2.2

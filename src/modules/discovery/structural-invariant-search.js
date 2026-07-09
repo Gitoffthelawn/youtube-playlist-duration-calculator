@@ -1,7 +1,6 @@
 import { elementSelectors } from "../../shared/data/element-selectors";
+import { isDurationText } from "../../shared/modules/duration-pattern";
 import { logger } from "../../shared/modules/logger";
-
-const DURATION_PATTERN = /\d+:\d{2}(:\d{2})?/;
 
 /**
  * Result of a discovery attempt.
@@ -38,7 +37,7 @@ const discoverByRendererInvariant = (doc) => {
 
     if (videoRenderers.length >= 3) {
       const withTimestamps = videoRenderers.filter((videoRenderer) =>
-        DURATION_PATTERN.test(videoRenderer.textContent || ""),
+        isDurationText(videoRenderer.textContent || ""),
       );
 
       candidates.push({
@@ -109,21 +108,44 @@ const discoverByViewModel = (doc) => {
     };
   }
 
-  const withTimestamps = [...lockups].filter((lockup) =>
-    DURATION_PATTERN.test(lockup.textContent || ""),
-  );
+  // Separate lockups into actual video items (have a badge-shape whose
+  // text matches a duration pattern) and other cards (e.g., stale playlist
+  // recommendation cards from a previous SPA navigation page, which have
+  // count text like "20 videos" instead of a duration).
+  //
+  // On SPA navigation to a playlist, YouTube does not always remove all
+  // lockup elements from the previous page. The first lockups in DOM order
+  // may be stale recommendation cards whose badge-shape shows a video count
+  // rather than a duration. These must be excluded from both the container
+  // derivation and the readiness sampling.
+  const videoLockups = [...lockups].filter((lockup) => {
+    const badges = lockup.querySelectorAll("badge-shape");
+    return [...badges].some((b) =>
+      isDurationText((b.textContent || "").trim()),
+    );
+  });
+
+  // Use the first VIDEO lockup to derive the insertion container (the
+  // section-list-renderer that wraps the actual playlist video items).
+  // Using a stale card's container would point to the wrong page section,
+  // causing getVideos() to re-derive from stale DOM.
+  const firstVideo = videoLockups.length > 0 ? videoLockups[0] : lockups[0];
 
   const container =
-    lockups[0].closest("yt-section-list-renderer") ||
-    lockups[0].closest("[id*='contents']") ||
-    lockups[0].parentElement;
+    firstVideo?.closest("yt-section-list-renderer") ||
+    firstVideo?.closest("[id*='contents']") ||
+    firstVideo?.parentElement ||
+    null;
 
-  const usableVideos =
-    withTimestamps.length > 0 ? withTimestamps : [...lockups];
+  // Confidence is gated by badge-bearing video lockups, NOT by whole-textContent
+  // pattern matches, so a stale card whose textContent contains a duration
+  // pattern cannot elevate confidence when videoLockups is empty.
+  const usableVideos = videoLockups.length > 0 ? videoLockups : [...lockups];
+  const hasVideo = videoLockups.length >= 1;
 
   logger.debug("discovery_viewmodel", () => ({
     totalLockups: lockups.length,
-    withTimestamps: withTimestamps.length,
+    videoLockups: videoLockups.length,
     containerTag: container?.tagName || "none",
   }));
 
@@ -135,7 +157,7 @@ const discoverByViewModel = (doc) => {
         ? 0.85
         : usableVideos.length >= 3
           ? 0.7
-          : usableVideos.length >= 1 && withTimestamps.length > 0
+          : hasVideo
             ? 0.6
             : 0.3;
 
